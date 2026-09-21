@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    @apply border-white/10;
+  }
+
+  html {
+    @apply bg-surface-950;
+  }
+
+  body {
+    @apply bg-surface-950 text-white/90 font-body antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display text-white;
+  }
+
+  ::selection {
+    @apply bg-accent/30 text-white;
+  }
+
+  :focus-visible {
+    outline: 2px solid theme("colors.accent.DEFAULT");
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/[0.05] backdrop-blur-md border border-white/10 shadow-glass;
+  }
+
+  .glass-strong {
+    @apply bg-white/[0.08] backdrop-blur-xl border border-white/[0.12] shadow-glass;
+  }
+
+  .elevated {
+    @apply shadow-elevated;
+  }
+
+  .interactive {
+    @apply transition-colors duration-200 hover:bg-white/[0.08] active:bg-white/[0.1];
+  }
+
+  .status-dot {
+    @apply inline-block h-2 w-2 rounded-full;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
