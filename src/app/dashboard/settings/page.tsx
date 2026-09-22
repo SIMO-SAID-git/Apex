@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import { PageContainer } from "@/components/layout/page-container";
 import { ProfileCard } from "@/components/account/profile-card";
-import { ProfileForm } from "@/components/account/profile-form";
 import { AccountSettings } from "@/components/account/account-settings";
-import { GlassCard } from "@/components/ui/glass-card";
+import { SettingsSections } from "@/app/dashboard/settings/settings-sections";
 
 export const metadata: Metadata = {
   title: "Account Settings",
@@ -19,12 +18,7 @@ export default function SettingsPage() {
       </div>
 
       <ProfileCard />
-
-      <GlassCard className="p-6">
-        <h2 className="text-base font-semibold text-white mb-5">Profile</h2>
-        <ProfileForm />
-      </GlassCard>
-
+      <SettingsSections />
       <AccountSettings />
     </PageContainer>
   );

@@ -33,6 +33,9 @@ export interface SignUpInput {
   password: string;
   firstName: string;
   lastName: string;
+  /** Defaults to "member" server-side if omitted — see handle_new_user() in
+   *  supabase/migrations/002_profile_roles_and_public_profiles.sql. */
+  role?: import("./profile").UserRole;
 }
 
 export interface SignInInput {

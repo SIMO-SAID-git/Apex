@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
     email: user.email,
     firstName: user.firstName,
     lastName: user.lastName,
+    role: parsed.data.role,
   });
 
   // Mock mode never sends real email — the customer is treated as

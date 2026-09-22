@@ -1,14 +1,17 @@
 import "server-only";
 import { randomUUID } from "crypto";
-import type { CustomerProfile, UpdateProfileInput } from "@/types/profile";
+import type { CustomerProfile, PublicProfile, TrainerDetails, UpdateProfileInput, UserRole } from "@/types/profile";
 import { isMockMode } from "@/config/site";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { generateUniqueUsername } from "@/lib/utils/username";
 
 export interface ProfileRepository {
   getProfile(userId: string): Promise<CustomerProfile | null>;
   updateProfile(userId: string, input: UpdateProfileInput): Promise<CustomerProfile>;
   updateAvatarUrl(userId: string, avatarUrl: string | null): Promise<CustomerProfile>;
   deleteProfile(userId: string): Promise<void>;
+  /** Public-safe lookup for /profile/[username] — never returns email/phone/userId. */
+  getPublicProfile(username: string): Promise<PublicProfile | null>;
 }
 
 interface CreateProfileInput {
@@ -16,11 +19,22 @@ interface CreateProfileInput {
   email: string;
   firstName: string;
   lastName: string;
+  /** Defaults to "member" — mirrors handle_new_user()'s whitelist in the migration. */
+  role?: UserRole;
 }
+
+const EMPTY_TRAINER_DETAILS: TrainerDetails = {
+  bio: "",
+  specialties: [],
+  certifications: [],
+  hourlyRate: null,
+  socialLinks: {},
+  availability: [],
+};
 
 class InMemoryProfileStore {
   private static instance: InMemoryProfileStore;
-  profiles: Map<string, CustomerProfile> = new Map();
+  profiles: Map<string, CustomerProfile> = new Map(); // keyed by userId
 
   private constructor() {}
 
@@ -30,20 +44,38 @@ class InMemoryProfileStore {
     }
     return InMemoryProfileStore.instance;
   }
+
+  findByUsername(username: string): CustomerProfile | undefined {
+    const target = username.toLowerCase();
+    return Array.from(this.profiles.values()).find((p) => p.username.toLowerCase() === target);
+  }
 }
 
 /**
- * Mock mode's stand-in for the `profiles` table + the `handle_new_user`
- * Postgres trigger (see supabase/migrations/001_customer_profiles.sql).
- * MockAuthService.signUp calls createMockProfile() right after creating the
- * mock auth user, mirroring what the trigger does automatically in
- * production.
+ * Mock mode's stand-in for the `profiles`/`trainer_details` tables + the
+ * `handle_new_user` Postgres trigger (see
+ * supabase/migrations/001_customer_profiles.sql and 002_profile_roles_and_public_profiles.sql).
+ * MockAuthService.signUp calls this right after creating the mock auth
+ * user, mirroring what the trigger does automatically in production —
+ * including generating a unique username and seeding empty trainer details
+ * when role === "trainer".
  */
 export function createMockProfile(input: CreateProfileInput): CustomerProfile {
   const now = new Date().toISOString();
+  const store = InMemoryProfileStore.get();
+  const role: UserRole = input.role === "trainer" ? "trainer" : "member";
+
+  const username = generateUniqueUsername(
+    `${input.firstName}${input.lastName}`,
+    input.userId,
+    (candidate) => Boolean(store.findByUsername(candidate))
+  );
+
   const profile: CustomerProfile = {
     id: randomUUID(),
     userId: input.userId,
+    username,
+    role,
     firstName: input.firstName,
     lastName: input.lastName,
     displayName: `${input.firstName} ${input.lastName}`.trim(),
@@ -51,10 +83,11 @@ export function createMockProfile(input: CreateProfileInput): CustomerProfile {
     avatarUrl: null,
     phone: null,
     fitnessGoal: null,
+    trainer: role === "trainer" ? { ...EMPTY_TRAINER_DETAILS } : null,
     createdAt: now,
     updatedAt: now,
   };
-  InMemoryProfileStore.get().profiles.set(input.userId, profile);
+  store.profiles.set(input.userId, profile);
   return profile;
 }
 
@@ -69,10 +102,17 @@ export class MockProfileRepository implements ProfileRepository {
     if (!existing) {
       throw new Error("PROFILE_NOT_FOUND");
     }
+
+    const { trainer: trainerPatch, ...rest } = input;
+
     const updated: CustomerProfile = {
       ...existing,
-      ...input,
+      ...rest,
       displayName: input.displayName ?? existing.displayName,
+      trainer:
+        existing.role === "trainer"
+          ? { ...(existing.trainer ?? EMPTY_TRAINER_DETAILS), ...trainerPatch }
+          : null,
       updatedAt: new Date().toISOString(),
     };
     store.profiles.set(userId, updated);
@@ -91,14 +131,20 @@ export class MockProfileRepository implements ProfileRepository {
   async deleteProfile(userId: string): Promise<void> {
     InMemoryProfileStore.get().profiles.delete(userId);
   }
+
+  async getPublicProfile(username: string): Promise<PublicProfile | null> {
+    const profile = InMemoryProfileStore.get().findByUsername(username);
+    if (!profile) return null;
+    return toPublicProfile(profile);
+  }
 }
 
 /**
- * Queries the `profiles` table using the session-bound server client (see
- * lib/supabase/server.ts). Because this client carries the caller's own
- * session cookie, every query below runs AS that user in Postgres's eyes —
- * Row Level Security (see the migration) is what actually prevents reading
- * or writing another customer's row, not this application code.
+ * Queries the `profiles`/`trainer_details` tables using the session-bound
+ * server client (see lib/supabase/server.ts) for owner reads/writes, and the
+ * public `public_profiles` view (see the migration) for anonymous reads.
+ * RLS — not this application code — is what actually prevents reading or
+ * writing another customer's private row.
  */
 export class SupabaseProfileRepository implements ProfileRepository {
   private client() {
@@ -110,7 +156,7 @@ export class SupabaseProfileRepository implements ProfileRepository {
   async getProfile(userId: string): Promise<CustomerProfile | null> {
     const { data, error } = await this.client()
       .from("profiles")
-      .select("*")
+      .select("*, trainer_details(*)")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -131,34 +177,76 @@ export class SupabaseProfileRepository implements ProfileRepository {
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", userId)
-      .select("*")
+      .select("*, trainer_details(*)")
       .single();
 
     if (error) throw error;
-    return mapRow(data);
+
+    if (input.trainer) {
+      const { error: trainerError } = await this.client()
+        .from("trainer_details")
+        .update({
+          bio: input.trainer.bio,
+          specialties: input.trainer.specialties,
+          certifications: input.trainer.certifications,
+          hourly_rate: input.trainer.hourlyRate,
+          social_links: input.trainer.socialLinks,
+          availability: input.trainer.availability,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId);
+      if (trainerError) throw trainerError;
+    }
+
+    return this.getProfile(userId) as Promise<CustomerProfile>;
   }
 
   async updateAvatarUrl(userId: string, avatarUrl: string | null): Promise<CustomerProfile> {
-    const { data, error } = await this.client()
+    const { error } = await this.client()
       .from("profiles")
       .update({ avatar_url: avatarUrl, updated_at: new Date().toISOString() })
-      .eq("user_id", userId)
-      .select("*")
-      .single();
+      .eq("user_id", userId);
 
     if (error) throw error;
-    return mapRow(data);
+    return this.getProfile(userId) as Promise<CustomerProfile>;
   }
 
   async deleteProfile(userId: string): Promise<void> {
     const { error } = await this.client().from("profiles").delete().eq("user_id", userId);
     if (error) throw error;
   }
+
+  async getPublicProfile(username: string): Promise<PublicProfile | null> {
+    // Queries the public_profiles VIEW, not the base `profiles` table —
+    // this is what makes it safe to call with the anon key / no session at
+    // all: the view's column list is the allowlist (see the migration),
+    // there's no risk of a future `select("*")` on `profiles` leaking here.
+    const { data, error } = await this.client()
+      .from("public_profiles")
+      .select("*")
+      .ilike("username", username)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+    return mapPublicRow(data);
+  }
+}
+
+interface TrainerDetailsRow {
+  bio: string;
+  specialties: string[];
+  certifications: string[];
+  hourly_rate: number | null;
+  social_links: TrainerDetails["socialLinks"];
+  availability: TrainerDetails["availability"];
 }
 
 interface ProfileRow {
   id: string;
   user_id: string;
+  username: string;
+  role: UserRole;
   first_name: string;
   last_name: string;
   display_name: string;
@@ -168,12 +256,17 @@ interface ProfileRow {
   fitness_goal: CustomerProfile["fitnessGoal"];
   created_at: string;
   updated_at: string;
+  trainer_details: TrainerDetailsRow[] | TrainerDetailsRow | null;
 }
 
 function mapRow(row: ProfileRow): CustomerProfile {
+  const trainerRow = Array.isArray(row.trainer_details) ? row.trainer_details[0] : row.trainer_details;
+
   return {
     id: row.id,
     userId: row.user_id,
+    username: row.username,
+    role: row.role,
     firstName: row.first_name,
     lastName: row.last_name,
     displayName: row.display_name,
@@ -181,8 +274,88 @@ function mapRow(row: ProfileRow): CustomerProfile {
     avatarUrl: row.avatar_url,
     phone: row.phone,
     fitnessGoal: row.fitness_goal,
+    trainer:
+      row.role === "trainer" && trainerRow
+        ? {
+            bio: trainerRow.bio,
+            specialties: trainerRow.specialties as TrainerDetails["specialties"],
+            certifications: trainerRow.certifications,
+            hourlyRate: trainerRow.hourly_rate,
+            socialLinks: trainerRow.social_links ?? {},
+            availability: trainerRow.availability ?? [],
+          }
+        : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+interface PublicProfileRow {
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  role: UserRole;
+  fitness_goal: CustomerProfile["fitnessGoal"];
+  member_since: string;
+  bio: string | null;
+  specialties: string[] | null;
+  certifications: string[] | null;
+  hourly_rate: number | null;
+  social_links: TrainerDetails["socialLinks"] | null;
+  availability: TrainerDetails["availability"] | null;
+}
+
+function mapPublicRow(row: PublicProfileRow): PublicProfile {
+  if (row.role === "trainer") {
+    return {
+      role: "trainer",
+      username: row.username,
+      displayName: row.display_name,
+      avatarUrl: row.avatar_url,
+      bio: row.bio ?? "",
+      specialties: (row.specialties as TrainerDetails["specialties"]) ?? [],
+      certifications: row.certifications ?? [],
+      hourlyRate: row.hourly_rate,
+      socialLinks: row.social_links ?? {},
+      availability: row.availability ?? [],
+      memberSince: row.member_since,
+    };
+  }
+
+  return {
+    role: "member",
+    username: row.username,
+    displayName: row.display_name,
+    avatarUrl: row.avatar_url,
+    fitnessGoal: row.fitness_goal,
+    memberSince: row.member_since,
+  };
+}
+
+function toPublicProfile(profile: CustomerProfile): PublicProfile {
+  if (profile.role === "trainer") {
+    return {
+      role: "trainer",
+      username: profile.username,
+      displayName: profile.displayName,
+      avatarUrl: profile.avatarUrl,
+      bio: profile.trainer?.bio ?? "",
+      specialties: profile.trainer?.specialties ?? [],
+      certifications: profile.trainer?.certifications ?? [],
+      hourlyRate: profile.trainer?.hourlyRate ?? null,
+      socialLinks: profile.trainer?.socialLinks ?? {},
+      availability: profile.trainer?.availability ?? [],
+      memberSince: profile.createdAt,
+    };
+  }
+
+  return {
+    role: "member",
+    username: profile.username,
+    displayName: profile.displayName,
+    avatarUrl: profile.avatarUrl,
+    fitnessGoal: profile.fitnessGoal,
+    memberSince: profile.createdAt,
   };
 }
 

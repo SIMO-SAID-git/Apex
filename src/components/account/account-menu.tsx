@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { ChevronDown, LayoutDashboard, CalendarDays, Dumbbell, Settings, LogOut } from "lucide-react";
+import { ChevronDown, LayoutDashboard, CalendarDays, Dumbbell, Settings, LogOut, User } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/hooks/auth/use-auth";
 import { useAuthActions } from "@/hooks/auth/use-auth-actions";
@@ -70,6 +70,17 @@ export function AccountMenu() {
             transition={{ duration: 0.15 }}
             className="absolute right-0 mt-2 w-56 glass-strong rounded-2xl p-2 elevated z-50"
           >
+            {profile ? (
+              <Link
+                href={`/profile/${profile.username}`}
+                role="menuitem"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+              >
+                <User className="h-4 w-4 text-white/40" />
+                View public profile
+              </Link>
+            ) : null}
             {MENU_ITEMS.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}

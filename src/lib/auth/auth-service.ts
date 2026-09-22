@@ -52,7 +52,7 @@ export class SupabaseAuthService implements AuthService {
         email: input.email,
         password: input.password,
         options: {
-          data: { first_name: input.firstName, last_name: input.lastName },
+          data: { first_name: input.firstName, last_name: input.lastName, role: input.role ?? "member" },
           emailRedirectTo: `${siteConfig.url}/auth/callback?next=/dashboard`,
         },
       });

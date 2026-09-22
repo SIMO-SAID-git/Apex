@@ -39,6 +39,21 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const repository = getProfileRepository();
+
+    // Defense in depth: even though a member never has a trainer_details
+    // row (see handle_new_user() in the migration) and RLS scopes any write
+    // to the caller's own row regardless, we reject the request outright
+    // rather than silently ignoring trainer data submitted by a non-trainer.
+    if (parsed.data.trainer) {
+      const existing = await repository.getProfile(authUser.id);
+      if (existing?.role !== "trainer") {
+        return NextResponse.json(
+          { error: "Only trainer accounts can update trainer details.", code: "FORBIDDEN" },
+          { status: 403 }
+        );
+      }
+    }
+
     // authUser.id comes from the verified session, never from the request
     // body — a customer can only ever update their own row.
     const profile = await repository.updateProfile(authUser.id, parsed.data);

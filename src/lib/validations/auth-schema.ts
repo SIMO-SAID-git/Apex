@@ -30,6 +30,7 @@ export const registerSchema = z
     phone: z.string().trim().max(20).optional().or(z.literal("")),
     dateOfBirth: z.string().optional().or(z.literal("")),
     fitnessGoal: fitnessGoalSchema,
+    role: z.enum(["member", "trainer"]).default("member"),
     acceptedTerms: z.literal(true, {
       errorMap: () => ({ message: "You must accept the terms to create an account." }),
     }),
@@ -51,6 +52,7 @@ export const registerServerSchema = z.object({
   password: passwordSchema,
   phone: z.string().trim().max(20).optional().or(z.literal("")),
   fitnessGoal: fitnessGoalSchema,
+  role: z.enum(["member", "trainer"]).optional(),
 });
 
 export const loginSchema = z.object({
