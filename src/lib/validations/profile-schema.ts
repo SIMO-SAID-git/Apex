@@ -35,6 +35,8 @@ export const updateProfileSchema = z.object({
     .nullable()
     .optional(),
   fitnessGoal: fitnessGoalSchema,
+  bio: z.string().trim().max(500).nullable().optional(),
+  languagePreference: z.enum(["en", "es", "fr", "de", "pt"]).optional(),
   trainer: trainerDetailsSchema.optional(),
 });
 

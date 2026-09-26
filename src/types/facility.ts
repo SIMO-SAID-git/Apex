@@ -6,6 +6,7 @@ export interface FacilityZone {
   featureTags: string[];
   images: string[];
   operatingHours: string;
+  rules: string[];
   /** SVG polygon points for the blueprint map, in a 0-1000 viewBox */
   points: string;
   labelX: number;

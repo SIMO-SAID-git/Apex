@@ -1,13 +1,33 @@
 import { randomUUID } from "crypto";
 import type { Booking, CreateBookingInput, CreateBookingResult } from "@/types/booking";
-import type { FitnessClass } from "@/types/class";
+import type { FitnessClass, ClassCategory, Intensity } from "@/types/class";
 import { deriveClassStatus } from "@/types/class";
 import { mockClasses } from "@/data/mock-classes";
 import { isMockMode } from "@/config/site";
+import { createNotification } from "@/lib/services/notification-service";
+
+export interface CreateClassInput {
+  title: string;
+  description: string;
+  category: ClassCategory;
+  intensity: Intensity;
+  date: string;
+  startTime: string;
+  durationMinutes: number;
+  capacity: number;
+  zoneId: string;
+  waitlistCapacity?: number;
+}
+
+export type UpdateClassInput = Partial<CreateClassInput>;
 
 export interface ClassRepository {
-  getClasses(params?: { date?: string }): Promise<FitnessClass[]>;
+  getClasses(params?: { date?: string; instructorId?: string; includeUnpublished?: boolean }): Promise<FitnessClass[]>;
   getClassById(id: string): Promise<FitnessClass | undefined>;
+  createClass(trainerUserId: string, input: CreateClassInput): Promise<FitnessClass>;
+  updateClass(classId: string, trainerUserId: string, input: UpdateClassInput): Promise<FitnessClass>;
+  publishClass(classId: string, trainerUserId: string): Promise<FitnessClass>;
+  cancelClass(classId: string, trainerUserId: string): Promise<void>;
 }
 
 export interface BookingRepository {
@@ -38,16 +58,128 @@ class InMemoryClassStore {
 }
 
 export class MockClassRepository implements ClassRepository {
-  async getClasses(params?: { date?: string }): Promise<FitnessClass[]> {
+  async getClasses(params?: { date?: string; instructorId?: string; includeUnpublished?: boolean }): Promise<FitnessClass[]> {
     const store = InMemoryClassStore.get();
-    if (params?.date) {
-      return store.classes.filter((c) => c.date === params.date);
-    }
-    return store.classes;
+    return store.classes.filter((c) => {
+      if (params?.date && c.date !== params.date) return false;
+      if (params?.instructorId && c.instructorId !== params.instructorId) return false;
+      if (!params?.includeUnpublished && !c.isPublished) return false;
+      return true;
+    });
   }
 
   async getClassById(id: string): Promise<FitnessClass | undefined> {
     return InMemoryClassStore.get().classes.find((c) => c.id === id);
+  }
+
+  async createClass(trainerUserId: string, input: CreateClassInput): Promise<FitnessClass> {
+    const store = InMemoryClassStore.get();
+    const startMinutes = timeToMinutes(input.startTime);
+    const endTime = minutesToTime(startMinutes + input.durationMinutes);
+
+    const fitnessClass: FitnessClass = {
+      id: randomUUID(),
+      title: input.title,
+      description: input.description,
+      category: input.category,
+      intensity: input.intensity,
+      durationMinutes: input.durationMinutes,
+      startTime: input.startTime,
+      endTime,
+      date: input.date,
+      instructorId: trainerUserId,
+      capacity: input.capacity,
+      bookedCount: 0,
+      waitlistCount: 0,
+      waitlistCapacity: input.waitlistCapacity ?? Math.max(2, Math.round(input.capacity * 0.3)),
+      status: "available",
+      zoneId: input.zoneId,
+      isPublished: false, // trainers publish explicitly (task #10: "create ... and publish")
+    };
+
+    store.classes.push(fitnessClass);
+    return fitnessClass;
+  }
+
+  async updateClass(classId: string, trainerUserId: string, input: UpdateClassInput): Promise<FitnessClass> {
+    const fitnessClass = this.requireOwnedClass(classId, trainerUserId);
+
+    Object.assign(fitnessClass, {
+      title: input.title ?? fitnessClass.title,
+      description: input.description ?? fitnessClass.description,
+      category: input.category ?? fitnessClass.category,
+      intensity: input.intensity ?? fitnessClass.intensity,
+      date: input.date ?? fitnessClass.date,
+      capacity: input.capacity ?? fitnessClass.capacity,
+      zoneId: input.zoneId ?? fitnessClass.zoneId,
+      waitlistCapacity: input.waitlistCapacity ?? fitnessClass.waitlistCapacity,
+    });
+
+    if (input.startTime || input.durationMinutes) {
+      const startTime = input.startTime ?? fitnessClass.startTime;
+      const durationMinutes = input.durationMinutes ?? fitnessClass.durationMinutes;
+      fitnessClass.startTime = startTime;
+      fitnessClass.durationMinutes = durationMinutes;
+      fitnessClass.endTime = minutesToTime(timeToMinutes(startTime) + durationMinutes);
+    }
+
+    fitnessClass.status = deriveClassStatus(fitnessClass);
+    return fitnessClass;
+  }
+
+  async publishClass(classId: string, trainerUserId: string): Promise<FitnessClass> {
+    const fitnessClass = this.requireOwnedClass(classId, trainerUserId);
+    fitnessClass.isPublished = true;
+    return fitnessClass;
+  }
+
+  async cancelClass(classId: string, trainerUserId: string): Promise<void> {
+    const store = InMemoryClassStore.get();
+    const fitnessClass = this.requireOwnedClass(classId, trainerUserId);
+
+    // Task #10 "cancel": remove the class and cancel any confirmed/waitlisted
+    // bookings against it, rather than leaving orphaned bookings pointing at
+    // a class that no longer appears anywhere.
+    for (const booking of store.bookings.values()) {
+      if (booking.classId === classId && booking.status !== "cancelled") {
+        booking.status = "cancelled";
+      }
+    }
+    store.classes = store.classes.filter((c) => c.id !== classId);
+  }
+
+  /** Ownership is re-checked here on every mutation — a trainer can only
+   *  ever edit/publish/cancel classes where instructorId is their OWN
+   *  userId, never the static demo instructors or another trainer's class. */
+  private requireOwnedClass(classId: string, trainerUserId: string): FitnessClass {
+    const store = InMemoryClassStore.get();
+    const fitnessClass = store.classes.find((c) => c.id === classId);
+    if (!fitnessClass || fitnessClass.instructorId !== trainerUserId) {
+      throw new ClassError("CLASS_NOT_FOUND", "This class could not be found.");
+    }
+    return fitnessClass;
+  }
+}
+
+function timeToMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+function minutesToTime(totalMinutes: number): string {
+  const hh = Math.floor(totalMinutes / 60) % 24;
+  const mm = totalMinutes % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+export type ClassErrorCode = "CLASS_NOT_FOUND";
+
+export class ClassError extends Error {
+  code: ClassErrorCode;
+  constructor(code: ClassErrorCode, message: string) {
+    super(message);
+    this.code = code;
+    this.name = "ClassError";
   }
 }
 
@@ -91,6 +223,13 @@ export class MockBookingRepository implements BookingRepository {
 
     store.bookings.set(booking.id, booking);
 
+    void createNotification(
+      input.userId,
+      isWaitlist ? "booking_confirmed" : "booking_confirmed",
+      isWaitlist ? "You're on the waitlist" : "Booking confirmed",
+      isWaitlist ? `You've been added to the waitlist for ${fitnessClass.title}.` : `You're booked for ${fitnessClass.title}.`
+    );
+
     return { booking, classStatus: fitnessClass.status };
   }
 
@@ -117,6 +256,15 @@ export class MockBookingRepository implements BookingRepository {
     }
 
     booking.status = "cancelled";
+
+    if (fitnessClass) {
+      void createNotification(
+        callerId,
+        "booking_cancelled",
+        "Booking cancelled",
+        `Your booking for ${fitnessClass.title} has been cancelled.`
+      );
+    }
   }
 
   async getBookingsForUser(userId: string): Promise<(Booking & { fitnessClass?: FitnessClass })[]> {
@@ -171,4 +319,15 @@ export function getClassRepository(): ClassRepository {
 
 export function getBookingRepository(): BookingRepository {
   return isMockMode ? new MockBookingRepository() : new RemoteBookingRepository();
+}
+
+/**
+ * Used only by /api/classes/[id]/attendees — returns raw Booking records
+ * (not FitnessClass data) for a given class, so the route can resolve each
+ * booker's display name via ProfileRepository. Mock-mode only, matching
+ * this app's existing booking storage (see RemoteBookingRepository above).
+ */
+export async function getBookingsForClassAdmin(classId: string): Promise<Booking[]> {
+  const store = InMemoryClassStore.get();
+  return Array.from(store.bookings.values()).filter((b) => b.classId === classId);
 }

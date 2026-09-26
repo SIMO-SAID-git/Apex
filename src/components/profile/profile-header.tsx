@@ -2,7 +2,7 @@ import { Calendar } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Badge } from "@/components/ui/badge";
 import { initialsFromName } from "@/lib/utils/formatters";
-import { formatFriendlyDate } from "@/lib/utils/dates";
+import { formatTenure } from "@/lib/utils/dates";
 import type { PublicProfile } from "@/types/profile";
 
 export function ProfileHeader({ profile, isOwner }: { profile: PublicProfile; isOwner: boolean }) {
@@ -28,7 +28,7 @@ export function ProfileHeader({ profile, isOwner }: { profile: PublicProfile; is
         <p className="mt-1 text-sm text-white/50">@{profile.username}</p>
         <p className="mt-3 flex items-center justify-center sm:justify-start gap-1.5 text-xs text-white/40">
           <Calendar className="h-3.5 w-3.5" />
-          Member since {formatFriendlyDate(profile.memberSince.slice(0, 10))}
+          Member for {formatTenure(profile.memberSince)}
         </p>
       </div>
     </GlassCard>

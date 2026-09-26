@@ -2,16 +2,25 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { ChevronDown, LayoutDashboard, CalendarDays, Dumbbell, Settings, LogOut, User } from "lucide-react";
+import { ChevronDown, LayoutDashboard, CalendarDays, Dumbbell, Settings, LogOut, User, ListChecks, History } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/hooks/auth/use-auth";
 import { useAuthActions } from "@/hooks/auth/use-auth-actions";
 import { initialsFromName } from "@/lib/utils/formatters";
 
-const MENU_ITEMS = [
+const MEMBER_MENU_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/bookings", label: "My Bookings", icon: CalendarDays },
   { href: "/dashboard/workout-plan", label: "Workout Plan", icon: Dumbbell },
+  { href: "/dashboard/history", label: "History", icon: History },
+  { href: "/dashboard/settings", label: "Account Settings", icon: Settings },
+];
+
+// Trainers manage classes rather than booking them — see lib/auth/permissions.ts.
+const TRAINER_MENU_ITEMS = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard/classes", label: "My Classes", icon: ListChecks },
+  { href: "/dashboard/history", label: "History", icon: History },
   { href: "/dashboard/settings", label: "Account Settings", icon: Settings },
 ];
 
@@ -22,6 +31,7 @@ export function AccountMenu() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const displayName = profile?.displayName || user?.email?.split("@")[0] || "Account";
+  const menuItems = profile?.role === "trainer" ? TRAINER_MENU_ITEMS : MEMBER_MENU_ITEMS;
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -81,7 +91,7 @@ export function AccountMenu() {
                 View public profile
               </Link>
             ) : null}
-            {MENU_ITEMS.map(({ href, label, icon: Icon }) => (
+            {menuItems.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}

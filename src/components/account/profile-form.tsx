@@ -30,6 +30,7 @@ export function ProfileForm() {
   const [lastName, setLastName] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [phone, setPhone] = useState("");
+  const [bio, setBio] = useState("");
   const [fitnessGoal, setFitnessGoal] = useState<FitnessGoal | "">("");
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -39,6 +40,7 @@ export function ProfileForm() {
   const lastNameId = useId();
   const displayNameId = useId();
   const phoneId = useId();
+  const bioId = useId();
   const goalId = useId();
 
   useEffect(() => {
@@ -47,6 +49,7 @@ export function ProfileForm() {
     setLastName(profile.lastName);
     setDisplayName(profile.displayName);
     setPhone(profile.phone ?? "");
+    setBio(profile.bio ?? "");
     setFitnessGoal(profile.fitnessGoal ?? "");
   }, [profile]);
 
@@ -80,6 +83,7 @@ export function ProfileForm() {
       lastName,
       displayName,
       phone: phone || null,
+      bio: bio || null,
       fitnessGoal: fitnessGoal || null,
     });
 
@@ -174,6 +178,20 @@ export function ProfileForm() {
         <Label htmlFor={phoneId}>Phone</Label>
         <Input id={phoneId} type="tel" autoComplete="tel" placeholder="Optional" value={phone} onChange={(e) => setPhone(e.target.value)} hasError={Boolean(fieldErrors.phone)} />
         <FieldError id={`${phoneId}-error`} message={fieldErrors.phone} />
+      </div>
+
+      <div>
+        <Label htmlFor={bioId}>Bio</Label>
+        <textarea
+          id={bioId}
+          value={bio}
+          onChange={(e) => setBio(e.target.value)}
+          rows={3}
+          maxLength={500}
+          placeholder="A short intro other members will see on your profile."
+          className="w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-white/20"
+        />
+        <FieldError id={`${bioId}-error`} message={fieldErrors.bio} />
       </div>
 
       <div>

@@ -89,6 +89,7 @@ export function buildMockClasses(): FitnessClass[] {
       waitlistCapacity: seed.waitlistCapacity,
       status,
       zoneId: seed.zoneId,
+      isPublished: true,
     };
 
     return fitnessClass;

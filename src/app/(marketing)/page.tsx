@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { HeroSection } from "@/components/hero/hero-section";
 import { PageContainer } from "@/components/layout/page-container";
-import { GlassCard } from "@/components/ui/glass-card";
+import { PhotoCard } from "@/components/ui/photo-card";
 import { buttonVariants } from "@/components/ui/button";
 import { Dumbbell, HeartPulse, Snowflake } from "lucide-react";
 
@@ -17,16 +17,22 @@ const pillars = [
     icon: Dumbbell,
     title: "Strength & Conditioning",
     description: "Competition-grade platforms and coached programming for every level.",
+    imageUrl: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=900&h=1100&fit=crop&q=80",
+    imageAlt: "Barbell racks in a strength training area",
   },
   {
     icon: HeartPulse,
     title: "Instructor-Led Classes",
     description: "22+ weekly sessions across strength, HIIT, cardio, and zen.",
+    imageUrl: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=900&h=1100&fit=crop&q=80",
+    imageAlt: "Group fitness class in session",
   },
   {
     icon: Snowflake,
     title: "Recovery Built In",
     description: "Cold plunge, sauna, and guided mobility work, not an afterthought.",
+    imageUrl: "https://images.unsplash.com/photo-1571902943202-507ec2618e8f?w=900&h=1100&fit=crop&q=80",
+    imageAlt: "Cold plunge recovery pool",
   },
 ];
 
@@ -47,14 +53,8 @@ export default function MarketingHomePage() {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">
-          {pillars.map(({ icon: Icon, title, description }) => (
-            <GlassCard key={title} className="p-6">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/15 text-accent mb-4">
-                <Icon className="h-5 w-5" />
-              </div>
-              <h3 className="font-medium text-white">{title}</h3>
-              <p className="mt-2 text-sm text-white/60">{description}</p>
-            </GlassCard>
+          {pillars.map((pillar) => (
+            <PhotoCard key={pillar.title} className="aspect-[4/5]" {...pillar} />
           ))}
         </div>
 

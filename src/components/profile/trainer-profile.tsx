@@ -1,6 +1,7 @@
-import { Instagram, Globe, Youtube, DollarSign, Award, Clock } from "lucide-react";
+import { Instagram, Globe, Youtube, DollarSign, Award, Clock, CalendarClock } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Badge } from "@/components/ui/badge";
+import { formatFriendlyDate, formatTimeRange } from "@/lib/utils/dates";
 import type { PublicTrainerProfile } from "@/types/profile";
 
 const SPECIALTY_LABEL: Record<string, string> = {
@@ -33,6 +34,32 @@ export function TrainerProfile({ profile }: { profile: PublicTrainerProfile }) {
           <p className="text-sm text-white/60 whitespace-pre-line">{profile.bio}</p>
         </GlassCard>
       ) : null}
+
+      <GlassCard className="p-6">
+        <div className="flex items-center gap-2 mb-3">
+          <CalendarClock className="h-4 w-4 text-white/40" />
+          <h2 className="font-medium text-white">Upcoming classes</h2>
+        </div>
+        {profile.upcomingClasses.length > 0 ? (
+          <ul className="space-y-2.5">
+            {profile.upcomingClasses.map((c) => (
+              <li key={c.id} className="flex items-center justify-between gap-3 rounded-xl bg-white/5 px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-white">{c.title}</p>
+                  <p className="text-xs text-white/50">
+                    {formatFriendlyDate(c.date)} · {formatTimeRange(c.startTime, c.endTime)}
+                  </p>
+                </div>
+                <Badge tone="neutral" className="capitalize shrink-0">
+                  {c.category}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-white/40">No upcoming classes scheduled right now.</p>
+        )}
+      </GlassCard>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <GlassCard className="p-6">

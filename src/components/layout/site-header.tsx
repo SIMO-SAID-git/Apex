@@ -9,6 +9,7 @@ import { MobileNavigation } from "@/components/layout/mobile-navigation";
 import { ScrollProgress } from "@/components/layout/scroll-progress";
 import { LiveOccupancyWidget } from "@/components/hero/live-occupancy-widget";
 import { AccountMenu } from "@/components/account/account-menu";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { useAuth } from "@/hooks/auth/use-auth";
 import { buttonVariants } from "@/components/ui/button";
 
@@ -64,7 +65,8 @@ export function SiteHeader() {
           </div>
           {!isLoading ? (
             isAuthenticated ? (
-              <div className="hidden sm:block">
+              <div className="hidden sm:flex items-center gap-2">
+                <NotificationBell />
                 <AccountMenu />
               </div>
             ) : (

@@ -21,6 +21,21 @@ export interface FitnessClass {
   waitlistCapacity: number;
   status: ClassStatus;
   zoneId: string;
+  /** Draft classes (created but not yet published) never appear in the
+   *  public scheduler or on a trainer's public profile. */
+  isPublished: boolean;
+}
+
+/** A minimal, public-safe projection of FitnessClass — used on a trainer's
+ *  public profile page. Deliberately excludes capacity/bookedCount/zoneId. */
+export interface PublicClassSummary {
+  id: string;
+  title: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  category: ClassCategory;
+  intensity: Intensity;
 }
 
 export interface ClassQuery {

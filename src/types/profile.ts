@@ -54,7 +54,11 @@ export interface CustomerProfile {
   email: string;
   avatarUrl: string | null;
   phone: string | null;
+  bio: string | null;
   fitnessGoal: FitnessGoal | null;
+  languagePreference: string;
+  /** Ignored for trainers — trainers get full access via role, not a paid tier. */
+  membershipTier: import("./membership").MembershipTier;
   trainer: TrainerDetails | null;
   createdAt: string;
   updatedAt: string;
@@ -65,7 +69,9 @@ export interface UpdateProfileInput {
   lastName?: string;
   displayName?: string;
   phone?: string | null;
+  bio?: string | null;
   fitnessGoal?: FitnessGoal | null;
+  languagePreference?: string;
   trainer?: Partial<TrainerDetails>;
 }
 
@@ -81,6 +87,7 @@ export interface PublicMemberProfile {
   username: string;
   displayName: string;
   avatarUrl: string | null;
+  bio: string | null;
   fitnessGoal: FitnessGoal | null;
   memberSince: string;
 }
@@ -96,6 +103,7 @@ export interface PublicTrainerProfile {
   hourlyRate: number | null;
   socialLinks: SocialLinks;
   availability: AvailabilityWindow[];
+  upcomingClasses: import("./class").PublicClassSummary[];
   memberSince: string;
 }
 

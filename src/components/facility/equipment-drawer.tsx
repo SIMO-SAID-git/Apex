@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock } from "lucide-react";
+import { Clock, ShieldAlert } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge } from "@/components/ui/badge";
 import { EquipmentGallery } from "@/components/facility/equipment-gallery";
@@ -48,6 +48,23 @@ export function EquipmentDrawer({ zones, traffic }: { zones: FacilityZone[]; tra
         </div>
 
         {stats ? <TrafficChart stats={stats} /> : null}
+
+        {zone.rules.length > 0 ? (
+          <div>
+            <p className="text-sm font-medium text-white mb-2 flex items-center gap-1.5">
+              <ShieldAlert className="h-4 w-4 text-white/40" />
+              Zone rules
+            </p>
+            <ul className="space-y-1.5">
+              {zone.rules.map((rule) => (
+                <li key={rule} className="text-sm text-white/60 flex gap-2">
+                  <span className="text-accent" aria-hidden>·</span>
+                  {rule}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
     </Drawer>
   );

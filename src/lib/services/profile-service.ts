@@ -1,9 +1,11 @@
 import "server-only";
 import { randomUUID } from "crypto";
 import type { CustomerProfile, PublicProfile, TrainerDetails, UpdateProfileInput, UserRole } from "@/types/profile";
+import type { PublicClassSummary } from "@/types/class";
 import { isMockMode } from "@/config/site";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { generateUniqueUsername } from "@/lib/utils/username";
+import { getClassRepository } from "@/lib/services/booking-service";
 
 export interface ProfileRepository {
   getProfile(userId: string): Promise<CustomerProfile | null>;
@@ -31,6 +33,28 @@ const EMPTY_TRAINER_DETAILS: TrainerDetails = {
   socialLinks: {},
   availability: [],
 };
+
+/** Shared by both the mock and Supabase public-profile lookups — a
+ *  trainer's public "upcoming classes" list is always derived the same way:
+ *  their own published classes, today or later, soonest first. */
+async function getUpcomingClassSummaries(instructorUserId: string, limit = 6): Promise<PublicClassSummary[]> {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const classes = await getClassRepository().getClasses({ instructorId: instructorUserId });
+
+  return classes
+    .filter((c) => c.date >= todayIso)
+    .sort((a, b) => (a.date === b.date ? a.startTime.localeCompare(b.startTime) : a.date.localeCompare(b.date)))
+    .slice(0, limit)
+    .map((c) => ({
+      id: c.id,
+      title: c.title,
+      date: c.date,
+      startTime: c.startTime,
+      endTime: c.endTime,
+      category: c.category,
+      intensity: c.intensity,
+    }));
+}
 
 class InMemoryProfileStore {
   private static instance: InMemoryProfileStore;
@@ -82,13 +106,47 @@ export function createMockProfile(input: CreateProfileInput): CustomerProfile {
     email: input.email,
     avatarUrl: null,
     phone: null,
+    bio: null,
     fitnessGoal: null,
+    languagePreference: "en",
+    membershipTier: "free",
     trainer: role === "trainer" ? { ...EMPTY_TRAINER_DETAILS } : null,
     createdAt: now,
     updatedAt: now,
   };
   store.profiles.set(input.userId, profile);
   return profile;
+}
+
+/** Used only by MockMembershipRepository — membership tier changes go through
+ *  a dedicated flow with business rules, not the generic profile PATCH. */
+export function setMockMembershipTier(userId: string, tier: CustomerProfile["membershipTier"]): void {
+  const store = InMemoryProfileStore.get();
+  const existing = store.profiles.get(userId);
+  if (!existing) throw new Error("PROFILE_NOT_FOUND");
+  store.profiles.set(userId, { ...existing, membershipTier: tier, updatedAt: new Date().toISOString() });
+}
+
+/** Internal-only (mock mode) helper for session-service.ts, which needs a
+ *  trainer's userId to record a session but only ever has their public
+ *  username. Never exported to anything outside lib/services/*. */
+export function getUserIdByUsernameMock(username: string): string | null {
+  return InMemoryProfileStore.get().findByUsername(username)?.userId ?? null;
+}
+
+/** Resolves a public username to its userId for internal server-side uses
+ *  only (recording a profile view, booking a 1:1 session) — never returned
+ *  to a client. Works in both mock and Supabase mode. */
+export async function resolveUserIdByUsername(username: string): Promise<string | null> {
+  if (isMockMode) {
+    return getUserIdByUsernameMock(username);
+  }
+
+  const client = getSupabaseServerClient();
+  if (!client) return null;
+
+  const { data } = await client.from("public_profiles").select("user_id").ilike("username", username).maybeSingle();
+  return data?.user_id ?? null;
 }
 
 export class MockProfileRepository implements ProfileRepository {
@@ -135,7 +193,8 @@ export class MockProfileRepository implements ProfileRepository {
   async getPublicProfile(username: string): Promise<PublicProfile | null> {
     const profile = InMemoryProfileStore.get().findByUsername(username);
     if (!profile) return null;
-    return toPublicProfile(profile);
+    const upcomingClasses = profile.role === "trainer" ? await getUpcomingClassSummaries(profile.userId) : [];
+    return toPublicProfile(profile, upcomingClasses);
   }
 }
 
@@ -173,7 +232,9 @@ export class SupabaseProfileRepository implements ProfileRepository {
         last_name: input.lastName,
         display_name: input.displayName,
         phone: input.phone,
+        bio: input.bio,
         fitness_goal: input.fitnessGoal,
+        language_preference: input.languagePreference,
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", userId)
@@ -229,7 +290,9 @@ export class SupabaseProfileRepository implements ProfileRepository {
 
     if (error) throw error;
     if (!data) return null;
-    return mapPublicRow(data);
+
+    const upcomingClasses = data.role === "trainer" ? await getUpcomingClassSummaries(data.user_id) : [];
+    return mapPublicRow(data, upcomingClasses);
   }
 }
 
@@ -253,7 +316,10 @@ interface ProfileRow {
   email: string;
   avatar_url: string | null;
   phone: string | null;
+  bio: string | null;
   fitness_goal: CustomerProfile["fitnessGoal"];
+  language_preference: string;
+  membership_tier: CustomerProfile["membershipTier"];
   created_at: string;
   updated_at: string;
   trainer_details: TrainerDetailsRow[] | TrainerDetailsRow | null;
@@ -273,7 +339,10 @@ function mapRow(row: ProfileRow): CustomerProfile {
     email: row.email,
     avatarUrl: row.avatar_url,
     phone: row.phone,
+    bio: row.bio,
     fitnessGoal: row.fitness_goal,
+    languagePreference: row.language_preference,
+    membershipTier: row.membership_tier,
     trainer:
       row.role === "trainer" && trainerRow
         ? {
@@ -291,13 +360,15 @@ function mapRow(row: ProfileRow): CustomerProfile {
 }
 
 interface PublicProfileRow {
+  user_id: string;
   username: string;
   display_name: string;
   avatar_url: string | null;
   role: UserRole;
   fitness_goal: CustomerProfile["fitnessGoal"];
+  member_bio: string | null;
   member_since: string;
-  bio: string | null;
+  trainer_bio: string | null;
   specialties: string[] | null;
   certifications: string[] | null;
   hourly_rate: number | null;
@@ -305,19 +376,20 @@ interface PublicProfileRow {
   availability: TrainerDetails["availability"] | null;
 }
 
-function mapPublicRow(row: PublicProfileRow): PublicProfile {
+function mapPublicRow(row: PublicProfileRow, upcomingClasses: PublicClassSummary[]): PublicProfile {
   if (row.role === "trainer") {
     return {
       role: "trainer",
       username: row.username,
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
-      bio: row.bio ?? "",
+      bio: row.trainer_bio ?? "",
       specialties: (row.specialties as TrainerDetails["specialties"]) ?? [],
       certifications: row.certifications ?? [],
       hourlyRate: row.hourly_rate,
       socialLinks: row.social_links ?? {},
       availability: row.availability ?? [],
+      upcomingClasses,
       memberSince: row.member_since,
     };
   }
@@ -327,12 +399,13 @@ function mapPublicRow(row: PublicProfileRow): PublicProfile {
     username: row.username,
     displayName: row.display_name,
     avatarUrl: row.avatar_url,
+    bio: row.member_bio,
     fitnessGoal: row.fitness_goal,
     memberSince: row.member_since,
   };
 }
 
-function toPublicProfile(profile: CustomerProfile): PublicProfile {
+function toPublicProfile(profile: CustomerProfile, upcomingClasses: PublicClassSummary[] = []): PublicProfile {
   if (profile.role === "trainer") {
     return {
       role: "trainer",
@@ -345,6 +418,7 @@ function toPublicProfile(profile: CustomerProfile): PublicProfile {
       hourlyRate: profile.trainer?.hourlyRate ?? null,
       socialLinks: profile.trainer?.socialLinks ?? {},
       availability: profile.trainer?.availability ?? [],
+      upcomingClasses,
       memberSince: profile.createdAt,
     };
   }
@@ -354,6 +428,7 @@ function toPublicProfile(profile: CustomerProfile): PublicProfile {
     username: profile.username,
     displayName: profile.displayName,
     avatarUrl: profile.avatarUrl,
+    bio: profile.bio,
     fitnessGoal: profile.fitnessGoal,
     memberSince: profile.createdAt,
   };

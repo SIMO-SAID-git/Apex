@@ -45,3 +45,19 @@ export function formatTimeRange(start: string, end: string): string {
 export function formatFriendlyDate(dateIso: string): string {
   return format(parseISO(dateIso), "EEEE, MMMM d");
 }
+
+/** "X days/months/years" — used for "Member since ..." on profile pages. */
+export function formatTenure(createdAtIso: string): string {
+  const created = parseISO(createdAtIso);
+  const now = new Date();
+  const days = Math.max(0, Math.floor((now.getTime() - created.getTime()) / 86_400_000));
+
+  if (days < 1) return "today";
+  if (days < 30) return `${days} ${days === 1 ? "day" : "days"}`;
+
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} ${months === 1 ? "month" : "months"}`;
+
+  const years = Math.floor(months / 12);
+  return `${years} ${years === 1 ? "year" : "years"}`;
+}
